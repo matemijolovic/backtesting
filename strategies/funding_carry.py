@@ -1,14 +1,21 @@
 """Delta-neutral Binance funding carry (cash-and-carry).
 
 When perpetual funding is positive, longs pay shorts. The hedge is long
-spot and short the same notional of perp. When funding is deeply negative,
-flip both legs. Price delta nets out; PnL is funding minus fees minus
-basis change.
+spot and short the same notional of perp. Price delta nets out; PnL is
+funding minus fees minus basis change.
+
+Only the collecting side of *positive* funding is traded. Reverse carry
+(short spot) is skipped: spot borrow is not modeled, and BTC/ETH funding
+is rarely negative enough to pay for a round trip.
+
+Notional is sized near full equity. That matches a unified-margin book
+where the spot asset collaterizes the short perp, minus a cash buffer
+for fees.
 
 The signal is the last *settled* rate, used for the *next* payment. That
 avoids reading the rate you are about to collect. Entries are fast;
 exits wait for several consecutive dead/negative prints so round-trip
-spot fees do not chew up a 0.5 bp 8h premium.
+fees do not chew up a 0.5 bp 8h premium.
 """
 
 from __future__ import annotations
@@ -31,10 +38,9 @@ class FundingCarryConfig(StrategyConfig, frozen=True):
     perp_bar_type: BarType
     enter_rate: float = 0.00002
     exit_rate: float = 0.0
-    flip_rate: float = 0.00015
     enter_confirm: int = 1
     exit_confirm: int = 9
-    notional_frac: float = 0.40
+    notional_frac: float = 0.90
     min_basis: float = -0.0005
 
 
@@ -75,7 +81,7 @@ class FundingCarry(Strategy):
             if self.pending == "flat":
                 self.pending = None
                 return
-            self._enter(self.pending)
+            self._enter()
             self.pending = None
             return
 
@@ -93,7 +99,7 @@ class FundingCarry(Strategy):
             self.pending = want
             self.want = want
             return
-        self._enter(want)
+        self._enter()
         self.want = want
 
     def on_funding_rate(self, funding_rate: FundingRateUpdate) -> None:
@@ -121,15 +127,11 @@ class FundingCarry(Strategy):
     def _implied_side(self, rate: float) -> str | None:
         if rate >= self.config.enter_rate:
             return "short_perp"
-        if rate <= -self.config.flip_rate:
-            return "long_perp"
         if self.signal == "short_perp" and rate > self.config.exit_rate:
             return "short_perp"
-        if self.signal == "long_perp" and rate < -self.config.exit_rate:
-            return "long_perp"
         return None
 
-    def _basis_ok(self, side: str) -> bool:
+    def _basis_ok(self) -> bool:
         spot_bar = self.cache.bar(self.config.spot_bar_type)
         perp_bar = self.cache.bar(self.config.perp_bar_type)
         if spot_bar is None or perp_bar is None:
@@ -138,32 +140,21 @@ class FundingCarry(Strategy):
         perp = perp_bar.close.as_double()
         if spot <= 0:
             return False
-        basis = (perp - spot) / spot
-        if side == "short_perp":
-            return basis >= self.config.min_basis
-        return basis <= -self.config.min_basis
+        return (perp - spot) / spot >= self.config.min_basis
 
-    def _enter(self, side: str) -> None:
-        if not self._basis_ok(side):
+    def _enter(self) -> None:
+        if not self._basis_ok():
             return
         qty = self._hedge_qty()
         if qty is None:
             return
         spot_qty, perp_qty = qty
-        if side == "short_perp":
-            self.submit_order(
-                self.order_factory.market(self.config.spot_id, OrderSide.BUY, spot_qty)
-            )
-            self.submit_order(
-                self.order_factory.market(self.config.perp_id, OrderSide.SELL, perp_qty)
-            )
-        else:
-            self.submit_order(
-                self.order_factory.market(self.config.spot_id, OrderSide.SELL, spot_qty)
-            )
-            self.submit_order(
-                self.order_factory.market(self.config.perp_id, OrderSide.BUY, perp_qty)
-            )
+        self.submit_order(
+            self.order_factory.market(self.config.spot_id, OrderSide.BUY, spot_qty)
+        )
+        self.submit_order(
+            self.order_factory.market(self.config.perp_id, OrderSide.SELL, perp_qty)
+        )
 
     def _hedge_qty(self):
         spot = self.cache.instrument(self.config.spot_id)

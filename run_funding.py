@@ -1,4 +1,4 @@
-"""Delta-neutral Binance funding carry: long spot / short perp (or flip).
+"""Delta-neutral Binance funding carry: long spot / short perp.
 
     uv sync
     uv run python run_funding.py
@@ -31,6 +31,8 @@ from nautilus_trader.model.data import FundingRateUpdate
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.instruments import CryptoPerpetual
+from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.wranglers import BarDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
@@ -39,7 +41,7 @@ from strategies.funding_carry import FundingCarry
 from strategies.funding_carry import FundingCarryConfig
 
 STARTING_USDT = 100_000
-SYMBOL = "BTCUSDT"
+SYMBOL = "ETHUSDT"
 INTERVAL = "1h"
 DAYS = 1825
 SPY_TOTAL_RETURN = 0.8581  # 2021-08-16 adj close → 2026-08-14
@@ -100,9 +102,29 @@ def funding_updates(frame: pd.DataFrame, instrument_id) -> list[FundingRateUpdat
     return out
 
 
+def load_instruments(symbol: str):
+    """Spot/perp specs with BNB maker-style fees and 5% perp margin."""
+    if symbol == "ETHUSDT":
+        spot = TestInstrumentProvider.ethusdt_binance()
+        perp = TestInstrumentProvider.ethusdt_perp_binance()
+    else:
+        spot = TestInstrumentProvider.btcusdt_binance()
+        perp = TestInstrumentProvider.btcusdt_perp_binance()
+    spot_vals = CurrencyPair.to_dict(spot)
+    spot_vals["maker_fee"] = "0.00075"
+    spot_vals["taker_fee"] = "0.00075"
+    spot_vals["margin_init"] = "0"
+    spot_vals["margin_maint"] = "0"
+    perp_vals = CryptoPerpetual.to_dict(perp)
+    perp_vals["maker_fee"] = "0.000160"
+    perp_vals["taker_fee"] = "0.000160"
+    perp_vals["margin_init"] = "0.0500"
+    perp_vals["margin_maint"] = "0.0250"
+    return CurrencyPair.from_dict(spot_vals), CryptoPerpetual.from_dict(perp_vals)
+
+
 def main() -> int:
-    spot = TestInstrumentProvider.btcusdt_binance()
-    perp = TestInstrumentProvider.btcusdt_perp_binance()
+    spot, perp = load_instruments(SYMBOL)
     spot_bar_type = BarType.from_str(f"{spot.id}-1-HOUR-LAST-EXTERNAL")
     perp_bar_type = BarType.from_str(f"{perp.id}-1-HOUR-LAST-EXTERNAL")
 
@@ -127,7 +149,7 @@ def main() -> int:
         account_type=AccountType.MARGIN,
         base_currency=USDT,
         starting_balances=[Money(STARTING_USDT, USDT)],
-        default_leverage=Decimal(5),
+        default_leverage=Decimal(10),
         modules=[hook],
         allow_cash_borrowing=True,
     )
