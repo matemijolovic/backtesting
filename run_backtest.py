@@ -1,4 +1,4 @@
-"""Run a fully invested 20/50 SMA trend follower on Binance BTCUSDT daily bars.
+"""Run a fully invested 20/50 SMA trend follower on Binance BTCUSDT 5m bars.
 
     uv sync
     uv run python run_backtest.py
@@ -36,22 +36,9 @@ from strategies.dual_ma import DualMATrend
 
 STARTING_USDT = 100_000
 SYMBOL = "BTCUSDT"
-INTERVAL = "1h"
+INTERVAL = "5m"
 DAYS = 730
 SPY_TOTAL_RETURN = 0.4337  # 2024-08-16 adj close → 2026-08-14
-
-
-def to_daily(ohlcv: pd.DataFrame) -> pd.DataFrame:
-    daily = ohlcv.resample("1D").agg(
-        {
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-            "volume": "sum",
-        }
-    )
-    return daily.dropna()
 
 
 def bars_from_ohlcv(ohlcv: pd.DataFrame, instrument, bar_type):
@@ -74,8 +61,8 @@ def bars_from_ohlcv(ohlcv: pd.DataFrame, instrument, bar_type):
 
 def main() -> int:
     instrument = TestInstrumentProvider.btcusdt_binance()
-    bar_type = BarType.from_str(f"{instrument.id}-1-DAY-LAST-EXTERNAL")
-    ohlcv = to_daily(download_klines(SYMBOL, INTERVAL, DAYS))
+    bar_type = BarType.from_str(f"{instrument.id}-5-MINUTE-LAST-EXTERNAL")
+    ohlcv = download_klines(SYMBOL, INTERVAL, DAYS)
     bars = bars_from_ohlcv(ohlcv, instrument, bar_type)
 
     engine = BacktestEngine(
@@ -108,7 +95,7 @@ def main() -> int:
 
     print(
         f"Running always-in SMA 20/50 on {len(bars):,} "
-        f"{instrument.id} 1d bars ({ohlcv.index.min().date()} → {ohlcv.index.max().date()})...",
+        f"{instrument.id} 5m bars ({ohlcv.index.min()} → {ohlcv.index.max()})...",
         flush=True,
     )
     engine.run()
