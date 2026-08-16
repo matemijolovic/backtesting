@@ -1,4 +1,4 @@
-"""Run the regime ATR strategy on Binance ETHUSDT 1-hour bars.
+"""Run a fully invested 20/50 SMA trend follower on Binance BTCUSDT daily bars.
 
     uv sync
     uv run python run_backtest.py
@@ -31,19 +31,18 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.wranglers import BarDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
-from strategies.regime import RegimeConfig
-from strategies.regime import RegimeStrategy
+from strategies.dual_ma import DualMAConfig
+from strategies.dual_ma import DualMATrend
 
 STARTING_USDT = 100_000
-SYMBOL = "ETHUSDT"
+SYMBOL = "BTCUSDT"
 INTERVAL = "1h"
 DAYS = 730
+SPY_TOTAL_RETURN = 0.4337  # 2024-08-16 adj close → 2026-08-14
 
 
-def to_hourly(ohlcv: pd.DataFrame) -> pd.DataFrame:
-    if INTERVAL == "1h":
-        return ohlcv
-    hourly = ohlcv.resample("1h").agg(
+def to_daily(ohlcv: pd.DataFrame) -> pd.DataFrame:
+    daily = ohlcv.resample("1D").agg(
         {
             "open": "first",
             "high": "max",
@@ -52,7 +51,7 @@ def to_hourly(ohlcv: pd.DataFrame) -> pd.DataFrame:
             "volume": "sum",
         }
     )
-    return hourly.dropna()
+    return daily.dropna()
 
 
 def bars_from_ohlcv(ohlcv: pd.DataFrame, instrument, bar_type):
@@ -74,9 +73,9 @@ def bars_from_ohlcv(ohlcv: pd.DataFrame, instrument, bar_type):
 
 
 def main() -> int:
-    instrument = TestInstrumentProvider.ethusdt_binance()
-    bar_type = BarType.from_str(f"{instrument.id}-1-HOUR-LAST-EXTERNAL")
-    ohlcv = to_hourly(download_klines(SYMBOL, INTERVAL, DAYS))
+    instrument = TestInstrumentProvider.btcusdt_binance()
+    bar_type = BarType.from_str(f"{instrument.id}-1-DAY-LAST-EXTERNAL")
+    ohlcv = to_daily(download_klines(SYMBOL, INTERVAL, DAYS))
     bars = bars_from_ohlcv(ohlcv, instrument, bar_type)
 
     engine = BacktestEngine(
@@ -91,22 +90,25 @@ def main() -> int:
         account_type=AccountType.MARGIN,
         base_currency=USDT,
         starting_balances=[Money(STARTING_USDT, USDT)],
-        default_leverage=Decimal(1),
+        default_leverage=Decimal(2),
     )
     engine.add_instrument(instrument)
     engine.add_data(bars)
     engine.add_strategy(
-        RegimeStrategy(
-            RegimeConfig(
+        DualMATrend(
+            DualMAConfig(
                 instrument_id=instrument.id,
                 bar_type=bar_type,
+                fast=20,
+                slow=50,
+                leverage=1.0,
             ),
         ),
     )
 
     print(
-        f"Running regime ATR strategy on {len(bars):,} "
-        f"{instrument.id} 1h bars ({ohlcv.index.min()} → {ohlcv.index.max()})...",
+        f"Running always-in SMA 20/50 on {len(bars):,} "
+        f"{instrument.id} 1d bars ({ohlcv.index.min().date()} → {ohlcv.index.max().date()})...",
         flush=True,
     )
     engine.run()
@@ -124,10 +126,15 @@ def main() -> int:
     print(f"Fills:             {len(fills):,}")
     print(f"Closed positions:  {len(positions):,}")
     if not account.empty:
-        start = account.iloc[0]["total"]
-        end = account.iloc[-1]["total"]
-        print(f"Starting balance:  {start} USDT")
-        print(f"Ending balance:    {end} USDT")
+        start = float(account.iloc[0]["total"])
+        end = float(account.iloc[-1]["total"])
+        ret = end / start - 1
+        spy_end = start * (1 + SPY_TOTAL_RETURN)
+        print(f"Starting balance:  {start:,.2f} USDT")
+        print(f"Ending balance:    {end:,.2f} USDT")
+        print(f"Strategy return:   {ret:+.1%}")
+        print(f"SPY total return:  {SPY_TOTAL_RETURN:+.1%}  (${spy_end:,.0f})")
+        print(f"Beat SPY:          {'YES' if end > spy_end else 'NO'}")
 
     if not positions.empty:
         cols = [
