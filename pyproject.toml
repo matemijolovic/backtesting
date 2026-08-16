@@ -1,0 +1,13 @@
+[project]
+name = "backtesting"
+version = "0.1.0"
+description = "EMA-cross backtests on Binance data"
+requires-python = ">=3.12"
+dependencies = [
+    "nautilus-trader==1.231.0",
+    "numpy",
+    "pandas",
+]
+
+[tool.uv]
+package = false
