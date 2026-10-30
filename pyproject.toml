@@ -1,13 +1,28 @@
 [project]
 name = "backtesting"
 version = "0.1.0"
-description = "EMA-cross backtests on Binance data"
+description = "Nautilus Trader backtesting lab for Binance: multi-timeframe robustness sweeps and a Streamlit UI"
 requires-python = ">=3.12"
 dependencies = [
     "nautilus-trader==1.231.0",
     "numpy",
     "pandas",
+    "plotly>=7.1.0",
+    "streamlit>=1.66.1",
 ]
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # Raised inside nautilus_trader, not this project.
+    "ignore:Timestamp.utcnow is deprecated:DeprecationWarning",
+    "ignore::pandas.errors.Pandas4Warning",
+]

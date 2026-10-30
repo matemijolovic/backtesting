@@ -3,6 +3,6 @@ __pycache__/
 *.pyc
 .DS_Store
 catalog/
-data/*.parquet
+data/
 *.egg-info/
 .python-version

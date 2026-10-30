@@ -8,6 +8,8 @@ from strategies.funding_carry import FundingCarry
 from strategies.funding_carry import FundingCarryConfig
 from strategies.regime import RegimeConfig
 from strategies.regime import RegimeStrategy
+from strategies.signal_strategy import SignalStrategy
+from strategies.signal_strategy import SignalStrategyConfig
 
 __all__ = [
     "DonchianConfig",
@@ -20,4 +22,6 @@ __all__ = [
     "FundingCarryConfig",
     "RegimeConfig",
     "RegimeStrategy",
+    "SignalStrategy",
+    "SignalStrategyConfig",
 ]
